@@ -29,22 +29,23 @@ EXCLUDED_DIRS = {
     ".Π",
 }
 DOC_SUFFIXES = {".md", ".mdx", ".org", ".txt", ".adoc", ".rst"}
-PROMETHEAN_TOPLEVEL_DOCS = {
-    "AGENTS.md",
-    "README.md",
-    "CHANGELOG.md",
-    "HUMANS.md",
-    "MANIFESTO.md",
-    "graph.md",
-    "spacekeys.md",
-    "LICENSE.txt",
-}
+DEVEL_DOC_ROOTS = [
+    DEVEL_ROOT / "docs",
+    DEVEL_ROOT / "spec",
+    DEVEL_ROOT / "specs",
+    DEVEL_ROOT / "services" / "mcp-stack" / "README.md",
+    DEVEL_ROOT / "services" / "radar-stack" / "README.md",
+]
+PROMETHEAN_DOC_ROOTS = [
+    PROMETHEAN_ROOT / "docs",
+    PROMETHEAN_ROOT / "spec",
+    PROMETHEAN_ROOT / "services",
+]
 
 
 @dataclass
 class CopyStats:
     files: int = 0
-    dirs: int = 0
 
 
 def reset_dir(path: Path) -> None:
@@ -53,53 +54,52 @@ def reset_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def should_skip_dir(path: Path) -> bool:
-    return path.name in EXCLUDED_DIRS
+def iter_doc_files(root: Path):
+    if not root.exists():
+        return
+    if root.is_file():
+        if root.suffix.lower() in DOC_SUFFIXES or root.name in {"README.md", "AGENTS.md"}:
+            yield root
+        return
+    for path in root.rglob("*"):
+        if any(part in EXCLUDED_DIRS for part in path.parts):
+            continue
+        if path.is_file() and path.suffix.lower() in DOC_SUFFIXES:
+            yield path
 
 
-def copy_file(src: Path, dst: Path, stats: CopyStats) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
+def copy_file(src: Path, dest_root: Path, relative_to: Path, stats: CopyStats) -> None:
+    rel = src.relative_to(relative_to)
+    dest = dest_root / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
     stats.files += 1
 
 
-def copy_tree(src: Path, dst: Path, stats: CopyStats) -> None:
-    if not src.exists():
-        return
-    for path in src.rglob("*"):
-        rel = path.relative_to(src)
-        if any(part in EXCLUDED_DIRS for part in rel.parts):
-            continue
-        target = dst / rel
-        if path.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            stats.dirs += 1
-        elif path.is_file():
-            copy_file(path, target, stats)
+def keep_devel_doc(path: Path) -> bool:
+    lower = path.as_posix().lower()
+    tokens = (
+        "mcp",
+        "tooloxx",
+        "hormuz-clock-mcp",
+        "threat-radar-mcp",
+        "mcp-stack",
+        "radar-stack",
+    )
+    return any(token in lower for token in tokens)
 
 
-def copy_promethean_docs(src_root: Path, dst_root: Path, stats: CopyStats) -> None:
-    for name in sorted(PROMETHEAN_TOPLEVEL_DOCS):
-        src = src_root / name
-        if src.is_file():
-            copy_file(src, dst_root / name, stats)
-
-    for dirname in ("docs", "spec", "changelog.d"):
-        src = src_root / dirname
-        if src.exists():
-            copy_tree(src, dst_root / dirname, stats)
-
-    for path in src_root.rglob("*"):
-        rel = path.relative_to(src_root)
-        if any(part in EXCLUDED_DIRS for part in rel.parts):
-            continue
-        if not path.is_file():
-            continue
-        if rel.parts and rel.parts[0] in {"docs", "spec", "changelog.d"}:
-            continue
-        if path.suffix.lower() not in DOC_SUFFIXES:
-            continue
-        copy_file(path, dst_root / rel, stats)
+def keep_promethean_doc(path: Path) -> bool:
+    lower = path.as_posix().lower()
+    return (
+        "/services/mcp" in lower
+        or "/docs/dev/packages/mcp" in lower
+        or "/docs/dev/security/mcp_" in lower
+        or "/docs/design/enso-protocol/08-mcp-integration" in lower
+        or "/docs/dev/mcp-config-loader" in lower
+        or ("/spec/" in lower and "mcp" in lower)
+        or ("/docs/agile/tasks/" in lower and "mcp" in lower)
+    )
 
 
 def main() -> None:
@@ -109,23 +109,32 @@ def main() -> None:
     reset_dir(promethean_dest)
 
     devel_stats = CopyStats()
-    promethean_stats = CopyStats()
+    prom_stats = CopyStats()
 
-    for filename in ("AGENTS.md", "README.md"):
-        src = DEVEL_ROOT / filename
-        if src.is_file():
-            copy_file(src, devel_dest / filename, devel_stats)
+    seen: set[Path] = set()
+    for root in DEVEL_DOC_ROOTS:
+        for src in iter_doc_files(root):
+            if not keep_devel_doc(src):
+                continue
+            if src in seen:
+                continue
+            seen.add(src)
+            copy_file(src, devel_dest, DEVEL_ROOT, devel_stats)
 
-    for dirname in ("docs", "spec", "specs"):
-        src = DEVEL_ROOT / dirname
-        if src.exists():
-            copy_tree(src, devel_dest / dirname, devel_stats)
-
-    copy_promethean_docs(PROMETHEAN_ROOT, promethean_dest, promethean_stats)
+    seen.clear()
+    for root in PROMETHEAN_DOC_ROOTS:
+        for src in iter_doc_files(root):
+            if not keep_promethean_doc(src):
+                continue
+            if src in seen:
+                continue
+            seen.add(src)
+            copy_file(src, promethean_dest, PROMETHEAN_ROOT, prom_stats)
 
     manifest = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "tooloxxRoot": str(TOOLOXX_ROOT),
+        "scope": "MCP server documentation only",
         "sources": {
             "develRoot": str(DEVEL_ROOT),
             "prometheanRoot": str(PROMETHEAN_ROOT),
@@ -135,25 +144,16 @@ def main() -> None:
             "devel-root": {
                 "destination": str(devel_dest.relative_to(TOOLOXX_ROOT)),
                 "files": devel_stats.files,
-                "dirs": devel_stats.dirs,
-                "surfaces": ["AGENTS.md", "README.md", "docs/", "spec/", "specs/"],
+                "selectionRule": "doc files in devel root surfaces whose paths explicitly target MCP/tooloxx/radar-stack MCP surfaces",
             },
             "promethean": {
                 "destination": str(promethean_dest.relative_to(TOOLOXX_ROOT)),
-                "files": promethean_stats.files,
-                "dirs": promethean_stats.dirs,
-                "surfaces": [
-                    "top-level doc files",
-                    "docs/",
-                    "spec/",
-                    "changelog.d/",
-                    "repo-wide markdown/org/txt/adoc/rst docs",
-                ],
+                "files": prom_stats.files,
+                "selectionRule": "doc files in Promethean docs/spec/services paths explicitly tied to MCP services, MCP package docs, or MCP security/config docs",
             },
         },
     }
     manifest_path = IMPORT_ROOT / "MANIFEST.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

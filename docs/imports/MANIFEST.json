@@ -1,6 +1,7 @@
 {
-  "generatedAt": "2026-04-04T06:04:10.988282+00:00",
+  "generatedAt": "2026-04-04T06:19:51.403504+00:00",
   "tooloxxRoot": "/home/err/devel/orgs/open-hax/tooloxx",
+  "scope": "MCP server documentation only",
   "sources": {
     "develRoot": "/home/err/devel",
     "prometheanRoot": "/home/err/devel/orgs/octave-commons/promethean"
@@ -24,27 +25,13 @@
   "imports": {
     "devel-root": {
       "destination": "docs/imports/devel-root",
-      "files": 492,
-      "dirs": 45,
-      "surfaces": [
-        "AGENTS.md",
-        "README.md",
-        "docs/",
-        "spec/",
-        "specs/"
-      ]
+      "files": 8,
+      "selectionRule": "doc files in devel root surfaces whose paths explicitly target MCP/tooloxx/radar-stack MCP surfaces"
     },
     "promethean": {
       "destination": "docs/imports/promethean",
-      "files": 3619,
-      "dirs": 233,
-      "surfaces": [
-        "top-level doc files",
-        "docs/",
-        "spec/",
-        "changelog.d/",
-        "repo-wide markdown/org/txt/adoc/rst docs"
-      ]
+      "files": 32,
+      "selectionRule": "doc files in Promethean docs/spec/services paths explicitly tied to MCP services, MCP package docs, or MCP security/config docs"
     }
   }
 }
